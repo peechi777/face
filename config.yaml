@@ -1,0 +1,19 @@
+database:
+  path: "data/attendance.db"
+
+face_detection:
+  model: "mediapipe"
+  min_detection_confidence: 0.5
+
+face_recognition:
+  model: "buffalo_l"
+  recognition_threshold: 0.4
+  feature_dim: 512
+
+attendance:
+  cooldown_minutes: 5
+
+camera:
+  device_id: 0
+  width: 640
+  height: 480
