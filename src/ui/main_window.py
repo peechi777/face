@@ -9,11 +9,14 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QTabWidget, QGroupBox, QFormLayout)
 from PySide6.QtCore import QTimer, Qt, Signal, QThread
 from PySide6.QtGui import QImage, QPixmap
+from PIL import Image, ImageDraw, ImageFont
+import time
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.detector import FaceDetector
 from core.recognizer import FaceRecognizer
 from core.database import Database
+from core.liveness import LivenessDetector
 
 
 class CameraThread(QThread):
@@ -56,10 +59,12 @@ class MainWindow(QMainWindow):
             model_name=config['face_recognition']['model'],
             threshold=config['face_recognition']['recognition_threshold']
         )
+        self.liveness_detector = LivenessDetector()
         
         # 狀態變數
         self.current_frame = None
         self.camera_thread = None
+        self.status_display_until = 0  # Timestamp to hold status message
         
         self.init_ui()
         
@@ -352,8 +357,9 @@ class MainWindow(QMainWindow):
         
         self.btn_start_camera.setEnabled(False)
         self.btn_stop_camera.setEnabled(True)
-        self.btn_checkin.setEnabled(True)
-        self.status_label.setText("攝影機已啟動，請面向鏡頭")
+        self.btn_checkin.setEnabled(False) # Wait for liveness
+        self.status_label.setText("攝影機已啟動，請面向鏡頭並眨眼")
+        self.liveness_detector.reset()
     
     def stop_camera(self):
         """停止攝影機"""
@@ -380,6 +386,27 @@ class MainWindow(QMainWindow):
             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
             cv2.putText(frame, "Face Detected", (x, y-10), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            
+            # 活體偵測
+            is_alive, msg = self.liveness_detector.process(frame)
+            color = (0, 255, 0) if is_alive else (0, 0, 255)
+            
+            # Use PIL for Chinese text
+            frame = self.draw_text_cn(frame, msg, (10, 30), color, 30)
+            
+            if is_alive:
+                self.btn_checkin.setEnabled(True)
+                if time.time() > self.status_display_until:
+                    self.status_label.setText(f"✅ {msg}")
+                    self.status_label.setStyleSheet("font-size: 16px; padding: 10px; color: green;")
+            else:
+                self.btn_checkin.setEnabled(False)
+                if time.time() > self.status_display_until:
+                    self.status_label.setText(f"👁️ {msg}")
+                    self.status_label.setStyleSheet("font-size: 16px; padding: 10px; color: blue;")
+        else:
+            self.liveness_detector.reset()
+            self.btn_checkin.setEnabled(False)
         
         # 顯示畫面
         self.display_image(frame, self.camera_label)
@@ -419,6 +446,7 @@ class MainWindow(QMainWindow):
         if result is None:
             self.status_label.setText("❌ 辨識失敗：未找到匹配的員工")
             self.status_label.setStyleSheet("font-size: 16px; padding: 10px; color: red;")
+            self.status_display_until = time.time() + 3.0
             print("打卡 - 辨識失敗，未找到匹配的員工")
             return
         
@@ -429,6 +457,7 @@ class MainWindow(QMainWindow):
         if self.db.check_recent_attendance(emp_id, self.config['attendance']['cooldown_minutes']):
             self.status_label.setText(f"⚠️ {name}，您在 {self.config['attendance']['cooldown_minutes']} 分鐘內已打卡")
             self.status_label.setStyleSheet("font-size: 16px; padding: 10px; color: orange;")
+            self.status_display_until = time.time() + 3.0
             print(f"打卡 - {name} 在冷卻時間內")
             return
         
@@ -445,12 +474,34 @@ class MainWindow(QMainWindow):
         if success:
             self.status_label.setText(f"✅ 打卡成功！{name} (信心度: {confidence:.2f})")
             self.status_label.setStyleSheet("font-size: 16px; padding: 10px; color: green;")
+            self.status_display_until = time.time() + 3.0  # Show success message for 3 seconds
             print(f"打卡 - 記錄成功")
             self.update_today_records()
+            
+            # Reset liveness after checkin
+            self.liveness_detector.reset()
+            self.btn_checkin.setEnabled(False)
         else:
             self.status_label.setText("❌ 記錄失敗")
             self.status_label.setStyleSheet("font-size: 16px; padding: 10px; color: red;")
             print("打卡 - 記錄失敗")
+            self.status_display_until = time.time() + 3.0
+
+    def draw_text_cn(self, img, text, pos, color=(0, 255, 0), size=20):
+        """Draw Chinese text using PIL"""
+        try:
+            img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(img_pil)
+            # Try to load Windows font
+            font = ImageFont.truetype("msjh.ttc", size, encoding="utf-8")
+        except:
+            try:
+                font = ImageFont.truetype("arial.ttf", size, encoding="utf-8")
+            except:
+                font = ImageFont.load_default()
+        
+        draw.text(pos, text, font=font, fill=color)
+        return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
     
     def update_today_records(self):
         """更新今日記錄"""

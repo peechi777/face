@@ -1,19 +1,19 @@
 import cv2
 import numpy as np
+import mediapipe as mp
 from typing import Optional, Tuple
 import os
 
 
 class FaceDetector:
     def __init__(self, min_detection_confidence: float = 0.5):
-        # 使用 OpenCV 的 Haar Cascade 進行人臉偵測
-        # 尋找 OpenCV 的 haarcascade 檔案
-        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        if not os.path.exists(cascade_path):
-            raise FileNotFoundError(f"找不到 Haar Cascade 檔案: {cascade_path}")
-        
-        self.face_cascade = cv2.CascadeClassifier(cascade_path)
+        # 使用 MediaPipe 進行人臉偵測
         self.min_confidence = min_detection_confidence
+        
+        self.mp_face_detection = mp.solutions.face_detection
+        self.face_detection = self.mp_face_detection.FaceDetection(
+            min_detection_confidence=self.min_confidence
+        )
     
     def detect(self, image: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
         """
@@ -25,23 +25,29 @@ class FaceDetector:
         Returns:
             若偵測到恰好一張人臉，回傳 (x, y, w, h)，否則回傳 None
         """
-        # 轉換為灰階圖像以提升偵測速度
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # 轉換為 RGB 圖像 (MediaPipe 需要 RGB)
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         # 偵測人臉
-        faces = self.face_cascade.detectMultiScale(
-            gray,
-            scaleFactor=1.1,
-            minNeighbors=5,
-            minSize=(30, 30)
-        )
+        results = self.face_detection.process(image_rgb)
         
-        # 只接受恰好偵測到一張人臉的情況
-        if len(faces) != 1:
+        if not results.detections:
             return None
         
-        x, y, w, h = faces[0]
-        return (int(x), int(y), int(w), int(h))
+        # 只接受恰好偵測到一張人臉的情況
+        if len(results.detections) != 1:
+            return None
+            
+        detection = results.detections[0]
+        bboxC = detection.location_data.relative_bounding_box
+        
+        h_img, w_img = image.shape[:2]
+        x = int(bboxC.xmin * w_img)
+        y = int(bboxC.ymin * h_img)
+        w = int(bboxC.width * w_img)
+        h = int(bboxC.height * h_img)
+        
+        return (x, y, w, h)
     
     def crop_face(self, image: np.ndarray, bbox: Tuple[int, int, int, int], 
                   expand_ratio: float = 0.2) -> np.ndarray:
