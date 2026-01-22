@@ -35,6 +35,8 @@ class Database:
                 timestamp TEXT NOT NULL,
                 confidence REAL NOT NULL,
                 photo BLOB,
+                type TEXT,
+                duration INTEGER DEFAULT 0,
                 FOREIGN KEY (employee_id) REFERENCES employees(employee_id)
             )
         ''')
@@ -52,6 +54,30 @@ class Database:
         
         conn.commit()
         conn.close()
+        self._check_and_migrate_db()
+
+    def _check_and_migrate_db(self):
+        """檢查並遷移資料庫結構"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # 檢查 attendance_records 表的欄位
+            cursor.execute('PRAGMA table_info(attendance_records)')
+            columns = {info[1] for info in cursor.fetchall()}
+            
+            # 如果缺少 type 欄位，則新增
+            if 'type' not in columns:
+                cursor.execute('ALTER TABLE attendance_records ADD COLUMN type TEXT')
+                
+            # 如果缺少 duration 欄位，則新增
+            if 'duration' not in columns:
+                cursor.execute('ALTER TABLE attendance_records ADD COLUMN duration INTEGER DEFAULT 0')
+                
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Migration error: {e}")
     
     def add_employee(self, employee_id: str, name: str, feature: np.ndarray) -> bool:
         """新增員工"""
@@ -71,6 +97,27 @@ class Database:
             conn.close()
             return True
         except sqlite3.IntegrityError:
+            return False
+            
+    def update_employee_feature(self, employee_id: str, feature: np.ndarray) -> bool:
+        """更新員工特徵 (用於特徵演進)"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            feature_blob = feature.tobytes()
+            
+            cursor.execute('''
+                UPDATE employees 
+                SET feature = ? 
+                WHERE employee_id = ?
+            ''', (feature_blob, employee_id))
+            
+            conn.commit()
+            conn.close()
+            return cursor.rowcount > 0
+        except Exception as e:
+            print(f"Update feature error: {e}")
             return False
     
     def get_employee(self, employee_id: str) -> Optional[Tuple[str, str, np.ndarray]]:
@@ -122,7 +169,8 @@ class Database:
             return False
     
     def add_attendance_record(self, employee_id: str, name: str, 
-                            confidence: float, photo: Optional[bytes] = None) -> bool:
+                            confidence: float, photo: Optional[bytes] = None,
+                            record_type: str = '其他', duration: int = 0) -> bool:
         """新增打卡記錄"""
         try:
             conn = sqlite3.connect(self.db_path)
@@ -132,14 +180,15 @@ class Database:
             
             cursor.execute('''
                 INSERT INTO attendance_records 
-                (employee_id, name, timestamp, confidence, photo)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (employee_id, name, timestamp, confidence, photo))
+                (employee_id, name, timestamp, confidence, photo, type, duration)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (employee_id, name, timestamp, confidence, photo, record_type, duration))
             
             conn.commit()
             conn.close()
             return True
-        except Exception:
+        except Exception as e:
+            print(f"Add record error: {e}")
             return False
     
     def check_recent_attendance(self, employee_id: str, minutes: int = 5) -> bool:
@@ -159,7 +208,7 @@ class Database:
         
         return count > 0
     
-    def get_today_attendance(self) -> List[Tuple[str, str, str, str, float]]:
+    def get_today_attendance(self) -> List[Tuple]:
         """取得今日所有打卡記錄"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -168,20 +217,9 @@ class Database:
         
         cursor.execute('''
             SELECT employee_id, name, timestamp, 
-                   CASE 
-                       WHEN timestamp = (
-                           SELECT MIN(timestamp) FROM attendance_records r2 
-                           WHERE r2.employee_id = attendance_records.employee_id 
-                           AND DATE(r2.timestamp) = DATE(attendance_records.timestamp)
-                       ) THEN '上班'
-                       WHEN timestamp = (
-                           SELECT MAX(timestamp) FROM attendance_records r2 
-                           WHERE r2.employee_id = attendance_records.employee_id 
-                           AND DATE(r2.timestamp) = DATE(attendance_records.timestamp)
-                       ) THEN '下班'
-                       ELSE '其他'
-                   END as type,
-                   confidence
+                   COALESCE(type, '其他') as type,
+                   confidence,
+                   photo
             FROM attendance_records
             WHERE DATE(timestamp) = ?
             ORDER BY timestamp DESC

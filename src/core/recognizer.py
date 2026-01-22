@@ -43,6 +43,25 @@ class FaceRecognizer:
         """
         similarity = np.dot(feature1, feature2)
         return float(similarity)
+        
+    def evolve_feature(self, old_feature: np.ndarray, new_feature: np.ndarray, rate: float = 0.1) -> np.ndarray:
+        """
+        演進特徵 (Feature Evolution)
+        v_new = (1 - rate) * v_old + rate * v_new
+        
+        Args:
+            old_feature: 原有特徵
+            new_feature: 新觀測到的特徵
+            rate: 更新率 (0.0 ~ 1.0)
+            
+        Returns:
+            更新後並正規化的特徵向量
+        """
+        # Weighted average
+        evolved = (1.0 - rate) * old_feature + rate * new_feature
+        # Re-normalize
+        evolved = evolved / np.linalg.norm(evolved)
+        return evolved.astype(np.float32)
     
     def recognize(self, feature: np.ndarray, 
                  employee_features: List[Tuple[str, str, np.ndarray]]) -> Optional[Tuple[str, str, float]]:

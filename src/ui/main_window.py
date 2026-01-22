@@ -3,10 +3,12 @@ import os
 import cv2
 import numpy as np
 from datetime import datetime
+import subprocess
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                                QPushButton, QLabel, QLineEdit, QTableWidget, 
                                QTableWidgetItem, QFileDialog, QMessageBox, 
-                               QTabWidget, QGroupBox, QFormLayout)
+                               QTabWidget, QGroupBox, QFormLayout, QRadioButton,
+                               QButtonGroup, QSpinBox)
 from PySide6.QtCore import QTimer, Qt, Signal, QThread
 from PySide6.QtGui import QImage, QPixmap
 from PIL import Image, ImageDraw, ImageFont
@@ -72,10 +74,121 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("人臉辨識打卡系統")
         self.setGeometry(100, 100, 1200, 800)
         
+        # 設定全域樣式表 (Modern Dark Theme)
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #2b2b2b;
+                color: #ffffff;
+            }
+            QWidget {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                font-family: "Microsoft JhengHei", "Segoe UI", sans-serif;
+                font-size: 14px;
+            }
+            QGroupBox {
+                border: 2px solid #3d3d3d;
+                border-radius: 8px;
+                margin-top: 12px;
+                font-weight: bold;
+                color: #e0e0e0;
+                padding: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+                color: #4da3ff;
+            }
+            QPushButton {
+                background-color: #3d3d3d;
+                color: white;
+                border: 1px solid #555;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #4da3ff;
+                border-color: #4da3ff;
+                color: #000;
+            }
+            QPushButton:pressed {
+                background-color: #2b82df;
+            }
+            QPushButton:disabled {
+                background-color: #333;
+                color: #777;
+                border-color: #444;
+            }
+            QLineEdit, QSpinBox {
+                padding: 8px;
+                border: 1px solid #555;
+                border-radius: 4px;
+                background-color: #363636;
+                color: white;
+                selection-background-color: #4da3ff;
+            }
+            QLineEdit:focus, QSpinBox:focus {
+                border: 1px solid #4da3ff;
+            }
+            QTableWidget {
+                background-color: #363636;
+                gridline-color: #444;
+                border: 1px solid #444;
+                border-radius: 4px;
+            }
+            QTableWidget::item {
+                padding: 5px;
+            }
+            QHeaderView::section {
+                background-color: #3d3d3d;
+                padding: 6px;
+                border: 1px solid #444;
+                color: #e0e0e0;
+                font-weight: bold;
+            }
+            QTabWidget::pane {
+                border: 1px solid #3d3d3d;
+                border-radius: 8px;
+                top: -1px; 
+            }
+            QTabBar::tab {
+                background: #363636;
+                color: #aaa;
+                padding: 10px 25px;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                margin-right: 2px;
+                min-width: 80px;
+            }
+            QTabBar::tab:selected {
+                background: #4da3ff;
+                color: #fff;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #444;
+                color: #ddd;
+            }
+            QRadioButton {
+                spacing: 8px;
+                color: #fff;
+            }
+            QRadioButton::indicator {
+                width: 18px;
+                height: 18px;
+            }
+            QLabel {
+                color: #fff;
+            }
+        """)
+        
         # 主 Widget
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
         
         # Tab Widget
         tabs = QTabWidget()
@@ -92,11 +205,19 @@ class MainWindow(QMainWindow):
         # Tab 3: 記錄查詢
         records_tab = self.create_records_tab()
         tabs.addTab(records_tab, "打卡記錄")
+        
+        # 預設顯示打卡頁面
+        tabs.setCurrentIndex(1)
     
     def create_registration_tab(self) -> QWidget:
         """建立員工註冊頁面"""
         widget = QWidget()
-        layout = QVBoxLayout(widget)
+        main_layout = QHBoxLayout(widget)  # 改為水平佈局
+        
+        # 左側面板 (輸入 + 照片)
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
         
         # 員工資訊輸入
         form_group = QGroupBox("員工資訊")
@@ -108,7 +229,7 @@ class MainWindow(QMainWindow):
         form_layout.addRow("姓名:", self.reg_name_input)
         
         form_group.setLayout(form_layout)
-        layout.addWidget(form_group)
+        left_layout.addWidget(form_group)
         
         # 照片選擇
         photo_group = QGroupBox("證件照")
@@ -116,7 +237,7 @@ class MainWindow(QMainWindow):
         
         self.reg_photo_label = QLabel("尚未選擇照片")
         self.reg_photo_label.setAlignment(Qt.AlignCenter)
-        self.reg_photo_label.setMinimumHeight(300)
+        self.reg_photo_label.setMinimumHeight(200)  # 縮小高度
         self.reg_photo_label.setStyleSheet("border: 2px dashed #aaa;")
         photo_layout.addWidget(self.reg_photo_label)
         
@@ -132,7 +253,14 @@ class MainWindow(QMainWindow):
         photo_layout.addLayout(btn_layout)
         
         photo_group.setLayout(photo_layout)
-        layout.addWidget(photo_group)
+        left_layout.addWidget(photo_group)
+        
+        left_layout.addStretch() # 推到上方
+        
+        # 右側面板 (列表)
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
         
         # 員工列表
         list_group = QGroupBox("已註冊員工")
@@ -141,6 +269,7 @@ class MainWindow(QMainWindow):
         self.reg_employee_table = QTableWidget()
         self.reg_employee_table.setColumnCount(3)
         self.reg_employee_table.setHorizontalHeaderLabels(["員工 ID", "姓名", "註冊時間"])
+        self.reg_employee_table.horizontalHeader().setStretchLastSection(True) # 讓欄位填滿
         list_layout.addWidget(self.reg_employee_table)
         
         self.btn_delete_employee = QPushButton("刪除選中員工")
@@ -148,7 +277,11 @@ class MainWindow(QMainWindow):
         list_layout.addWidget(self.btn_delete_employee)
         
         list_group.setLayout(list_layout)
-        layout.addWidget(list_group)
+        right_layout.addWidget(list_group)
+        
+        # 加入左右面板到主佈局
+        main_layout.addWidget(left_panel, 1)  # 左側佔 1 等份
+        main_layout.addWidget(right_panel, 2) # 右側佔 2 等份
         
         self.update_employee_list()
         
@@ -159,7 +292,45 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         
-        # 攝影機畫面
+        # 1. 打卡類型選擇
+        type_group = QGroupBox("打卡類型")
+        type_layout = QHBoxLayout()
+        
+        self.type_group = QButtonGroup(self)
+        
+        self.rb_clock_in = QRadioButton("上班 (Clock In)")
+        self.rb_clock_out = QRadioButton("下班 (Clock Out)")
+        self.rb_break = QRadioButton("休息 (Break)")
+        
+        self.type_group.addButton(self.rb_clock_in, 1)
+        self.type_group.addButton(self.rb_clock_out, 2)
+        self.type_group.addButton(self.rb_break, 3)
+        
+        type_layout.addWidget(self.rb_clock_in)
+        type_layout.addWidget(self.rb_clock_out)
+        type_layout.addWidget(self.rb_break)
+        
+        # 休息時間設定 (預設隱藏)
+        self.break_duration_label = QLabel("時數:")
+        self.break_duration_spin = QSpinBox()
+        self.break_duration_spin.setRange(1, 8)
+        self.break_duration_spin.setSuffix(" 小時")
+        self.break_duration_spin.setValue(1)
+        
+        self.break_duration_label.hide()
+        self.break_duration_spin.hide()
+        
+        type_layout.addWidget(self.break_duration_label)
+        type_layout.addWidget(self.break_duration_spin)
+        type_layout.addStretch()
+        
+        type_group.setLayout(type_layout)
+        layout.addWidget(type_group)
+        
+        # 連接訊號：當選擇休息時顯示時數
+        self.type_group.buttonClicked.connect(self._on_type_changed)
+        
+        # 2. 攝影機畫面
         camera_group = QGroupBox("即時畫面")
         camera_layout = QVBoxLayout()
         
@@ -194,7 +365,43 @@ class MainWindow(QMainWindow):
         camera_group.setLayout(camera_layout)
         layout.addWidget(camera_group)
         
+        # 初始化自動選擇
+        self.auto_select_attendance_type()
+        
         return widget
+
+    def _on_type_changed(self, button):
+        """當打卡類型改變時"""
+        if button == self.rb_break:
+            self.break_duration_label.show()
+            self.break_duration_spin.show()
+        else:
+            self.break_duration_label.hide()
+            self.break_duration_spin.hide()
+            
+    def auto_select_attendance_type(self):
+        """根據時間自動選擇打卡類型"""
+        hour = datetime.now().hour
+        if 7 <= hour < 12:
+            self.rb_clock_in.setChecked(True)
+            self._on_type_changed(self.rb_clock_in)
+        elif hour >= 17:
+            self.rb_clock_out.setChecked(True)
+            self._on_type_changed(self.rb_clock_out)
+        else:
+            # 預設，或保持不變
+            if not self.type_group.checkedButton():
+                self.rb_clock_in.setChecked(True)
+
+    def speak_text(self, text: str):
+        """文字轉語音 (使用 Windows PowerShell)"""
+        try:
+            # 必須使用非同步或線程，否則會卡住 UI。這裡簡單用 subprocess 且不等待
+            cmd = f'''Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{text}")'''
+            subprocess.Popen(["powershell", "-Command", cmd], 
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+        except Exception as e:
+            print(f"TTS Error: {e}")
     
     def create_records_tab(self) -> QWidget:
         """建立記錄查詢頁面"""
@@ -206,8 +413,13 @@ class MainWindow(QMainWindow):
         today_layout = QVBoxLayout()
         
         self.today_table = QTableWidget()
-        self.today_table.setColumnCount(5)
-        self.today_table.setHorizontalHeaderLabels(["員工 ID", "姓名", "時間", "類型", "信心度"])
+        self.today_table.setColumnCount(6)
+        self.today_table.setHorizontalHeaderLabels(["員工 ID", "姓名", "時間", "類型", "信心度", "照片"])
+        
+        # 設定行高以容納照片
+        self.today_table.verticalHeader().setDefaultSectionSize(100)
+        self.today_table.setColumnWidth(5, 120)
+        
         today_layout.addWidget(self.today_table)
         
         self.btn_refresh = QPushButton("重新整理")
@@ -421,24 +633,20 @@ class MainWindow(QMainWindow):
         if bbox is None:
             self.status_label.setText("❌ 偵測失敗：畫面中必須恰好包含一張人臉")
             self.status_label.setStyleSheet("font-size: 16px; padding: 10px; color: red;")
+            self.speak_text("偵測失敗，請確保畫面中只有一張人臉")
             return
         
         print(f"打卡 - 檢測到人臉: {bbox}")
         
-        # 擷取特徵（使用原始畫面，讓 InsightFace 自己檢測）
-        print(f"打卡 - 正在提取特徵，畫面尺寸: {self.current_frame.shape}")
+        # 擷取特徵
         feature = self.recognizer.extract_feature(self.current_frame)
         if feature is None:
             self.status_label.setText("❌ 特徵擷取失敗")
             self.status_label.setStyleSheet("font-size: 16px; padding: 10px; color: red;")
-            print("打卡 - 特徵提取失敗")
             return
-        
-        print(f"打卡 - 特徵提取成功，特徵維度: {feature.shape}")
         
         # 取得所有員工特徵
         employees = self.db.get_all_employees()
-        print(f"打卡 - 資料庫中有 {len(employees)} 位員工")
         
         # 辨識
         result = self.recognizer.recognize(feature, employees)
@@ -447,19 +655,45 @@ class MainWindow(QMainWindow):
             self.status_label.setText("❌ 辨識失敗：未找到匹配的員工")
             self.status_label.setStyleSheet("font-size: 16px; padding: 10px; color: red;")
             self.status_display_until = time.time() + 3.0
-            print("打卡 - 辨識失敗，未找到匹配的員工")
+            self.speak_text("辨識失敗")
             return
         
         emp_id, name, confidence = result
         print(f"打卡 - 辨識成功: {name} ({emp_id})，信心度: {confidence:.3f}")
         
-        # 檢查冷卻時間
-        if self.db.check_recent_attendance(emp_id, self.config['attendance']['cooldown_minutes']):
-            self.status_label.setText(f"⚠️ {name}，您在 {self.config['attendance']['cooldown_minutes']} 分鐘內已打卡")
-            self.status_label.setStyleSheet("font-size: 16px; padding: 10px; color: orange;")
-            self.status_display_until = time.time() + 3.0
-            print(f"打卡 - {name} 在冷卻時間內")
-            return
+        # 決定打卡類型
+        record_type = "其他"
+        duration = 0
+        if self.rb_clock_in.isChecked():
+            record_type = "上班"
+        elif self.rb_clock_out.isChecked():
+            record_type = "下班"
+        elif self.rb_break.isChecked():
+            record_type = "休息"
+            duration = self.break_duration_spin.value()
+            
+        # 檢查是否重複打卡 (同類型且在冷卻時間內)
+        # 這裡我們稍微修改邏輯：如果類型不同，則允許連續打卡。如果類型相同，則檢查時間。
+        allow_checkin = True
+        today_records = self.db.get_today_attendance()
+        # Filter records for this employee
+        emp_records = [r for r in today_records if r[0] == emp_id]
+        
+        if emp_records:
+            last_record = emp_records[0] # timestamp DESC
+            last_type = last_record[3]
+            last_time = datetime.fromisoformat(last_record[2])
+            
+            # 如果類型相同，檢查冷卻時間
+            if last_type == record_type:
+                diff_minutes = (datetime.now() - last_time).total_seconds() / 60
+                if diff_minutes < self.config['attendance']['cooldown_minutes']:
+                    msg = f"⚠️ {name}，您在 {self.config['attendance']['cooldown_minutes']} 分鐘內已{record_type}"
+                    self.status_label.setText(msg)
+                    self.status_label.setStyleSheet("font-size: 16px; padding: 10px; color: orange;")
+                    self.status_display_until = time.time() + 3.0
+                    self.speak_text(f"重複打卡，請稍後再試")
+                    return
         
         # 裁切人臉用於儲存照片
         face_img = self.detector.crop_face(self.current_frame, bbox)
@@ -469,22 +703,42 @@ class MainWindow(QMainWindow):
         photo_blob = photo_bytes.tobytes()
         
         # 記錄打卡
-        success = self.db.add_attendance_record(emp_id, name, confidence, photo_blob)
+        success = self.db.add_attendance_record(emp_id, name, confidence, photo_blob, record_type, duration)
         
         if success:
-            self.status_label.setText(f"✅ 打卡成功！{name} (信心度: {confidence:.2f})")
+            msg = f"✅ {record_type}打卡成功！{name}"
+            if record_type == "休息":
+                msg += f" ({duration}小時)"
+                
+            self.status_label.setText(msg)
             self.status_label.setStyleSheet("font-size: 16px; padding: 10px; color: green;")
-            self.status_display_until = time.time() + 3.0  # Show success message for 3 seconds
-            print(f"打卡 - 記錄成功")
+            self.status_display_until = time.time() + 3.0
+            
+            # 語音播報
+            speak_msg = f"{name} {record_type}打卡成功"
+            if record_type == "休息":
+                speak_msg += f" {duration}小時"
+            self.speak_text(speak_msg)
+            
+            # 特徵演進
+            try:
+                original_feature = next((f for eid, _, f in employees if eid == emp_id), None)
+                if original_feature is not None:
+                    new_feature = self.recognizer.evolve_feature(original_feature, feature, rate=0.1)
+                    if self.db.update_employee_feature(emp_id, new_feature):
+                        print(f"特徵演進成功: {name}")
+            except Exception as e:
+                print(f"特徵演進失敗: {e}")
+
             self.update_today_records()
             
-            # Reset liveness after checkin
+            # Reset
             self.liveness_detector.reset()
             self.btn_checkin.setEnabled(False)
         else:
             self.status_label.setText("❌ 記錄失敗")
             self.status_label.setStyleSheet("font-size: 16px; padding: 10px; color: red;")
-            print("打卡 - 記錄失敗")
+            self.speak_text("打卡失敗，系統錯誤")
             self.status_display_until = time.time() + 3.0
 
     def draw_text_cn(self, img, text, pos, color=(0, 255, 0), size=20):
@@ -508,13 +762,35 @@ class MainWindow(QMainWindow):
         records = self.db.get_today_attendance()
         self.today_table.setRowCount(len(records))
         
-        for i, (emp_id, name, timestamp, rec_type, confidence) in enumerate(records):
+        for i, (emp_id, name, timestamp, rec_type, confidence, photo_blob) in enumerate(records):
             time_str = datetime.fromisoformat(timestamp).strftime("%H:%M:%S")
             self.today_table.setItem(i, 0, QTableWidgetItem(emp_id))
             self.today_table.setItem(i, 1, QTableWidgetItem(name))
             self.today_table.setItem(i, 2, QTableWidgetItem(time_str))
             self.today_table.setItem(i, 3, QTableWidgetItem(rec_type))
             self.today_table.setItem(i, 4, QTableWidgetItem(f"{confidence:.3f}"))
+            
+            # 顯示照片
+            if photo_blob:
+                try:
+                    photo_array = np.frombuffer(photo_blob, dtype=np.uint8)
+                    photo_img = cv2.imdecode(photo_array, cv2.IMREAD_COLOR)
+                    if photo_img is not None:
+                        rgb_img = cv2.cvtColor(photo_img, cv2.COLOR_BGR2RGB)
+                        h, w, ch = rgb_img.shape
+                        bytes_per_line = ch * w
+                        qt_img = QImage(rgb_img.data, w, h, bytes_per_line, QImage.Format_RGB888)
+                        pixmap = QPixmap.fromImage(qt_img)
+                        scaled_pixmap = pixmap.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        
+                        img_label = QLabel()
+                        img_label.setPixmap(scaled_pixmap)
+                        img_label.setAlignment(Qt.AlignCenter)
+                        self.today_table.setCellWidget(i, 5, img_label)
+                except Exception as e:
+                    print(f"Error displaying photo: {e}")
+            else:
+                self.today_table.setItem(i, 5, QTableWidgetItem("無照片"))
     
     def display_image(self, img: np.ndarray, label: QLabel):
         """顯示圖片到 QLabel"""
