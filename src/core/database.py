@@ -236,7 +236,10 @@ class Database:
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT employee_id, name, timestamp, confidence
+            SELECT employee_id, name, timestamp, 
+                   COALESCE(type, '其他') as type,
+                   confidence,
+                   photo
             FROM attendance_records
             WHERE DATE(timestamp) BETWEEN ? AND ?
             ORDER BY timestamp DESC
